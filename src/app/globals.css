@@ -1,0 +1,173 @@
+@import "tailwindcss";
+
+/*
+  Cash — dark theme with a single bright accent.
+
+  Palette lifted from the reference screens: near-black canvas, a soft dark
+  card surface, and one bright electric green that carries every action,
+  progress ring, and callout. No colour salad; only one thing pops at a time.
+*/
+
+:root {
+  --bg: #000000;
+  --surface: #111114;
+  --surface-2: #1a1a1f;
+  --surface-3: #24242c;
+  --border: #26262e;
+  --text: #f5f5f7;
+  --text-muted: #8a8a94;
+  --text-dim: #5a5a63;
+  --accent: #00e58a;       /* primary green — Movo/Up style */
+  --accent-dim: #00b06b;
+  --accent-soft: rgba(0, 229, 138, 0.14);
+  --danger: #ff5a5f;
+  --warn: #ffb020;
+}
+
+@theme inline {
+  --color-bg: var(--bg);
+  --color-surface: var(--surface);
+  --color-surface-2: var(--surface-2);
+  --color-surface-3: var(--surface-3);
+  --color-border: var(--border);
+  --color-text: var(--text);
+  --color-text-muted: var(--text-muted);
+  --color-text-dim: var(--text-dim);
+  --color-accent: var(--accent);
+  --color-accent-dim: var(--accent-dim);
+  --color-accent-soft: var(--accent-soft);
+  --color-danger: var(--danger);
+  --color-warn: var(--warn);
+  --font-sans: system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+}
+
+* { box-sizing: border-box; }
+html, body { height: 100%; }
+body {
+  background: var(--bg);
+  color: var(--text);
+  font-family: system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+  -webkit-font-smoothing: antialiased;
+  text-rendering: optimizeLegibility;
+  overscroll-behavior-y: none;
+}
+
+/* Card surface: subtle border, no drop shadow (dark UI = shadow is invisible). */
+.card {
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: 20px;
+  padding: 18px;
+}
+.card-tight { padding: 14px; }
+.card-flush { padding: 0; overflow: hidden; }
+
+/* Big money number. Tabular figures so digits do not jitter as they change. */
+.num-hero {
+  font-variant-numeric: tabular-nums;
+  font-weight: 800;
+  letter-spacing: -0.03em;
+  font-size: 44px;
+  line-height: 1.05;
+}
+.num-lg {
+  font-variant-numeric: tabular-nums;
+  font-weight: 700;
+  letter-spacing: -0.02em;
+  font-size: 22px;
+}
+.num { font-variant-numeric: tabular-nums; }
+
+.eyebrow {
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+  font-size: 11px;
+  color: var(--text-muted);
+  font-weight: 600;
+}
+
+/* Pill: used for tabs and the In/Out bars in the pay-cycle card. */
+.pill {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 6px 12px;
+  border-radius: 999px;
+  background: var(--surface-2);
+  color: var(--text-muted);
+  font-size: 13px;
+  font-weight: 500;
+}
+.pill-accent {
+  background: var(--accent);
+  color: #001a10;
+  font-weight: 700;
+}
+.pill-danger { background: rgba(255, 90, 95, 0.15); color: var(--danger); }
+.pill-warn   { background: rgba(255, 176, 32, 0.15); color: var(--warn);   }
+
+/* Filled progress bar — used as the In/Out row in the pay-cycle card. */
+.bar-track {
+  background: var(--surface-2);
+  border-radius: 999px;
+  overflow: hidden;
+  height: 44px;
+  position: relative;
+}
+.bar-fill {
+  height: 100%;
+  border-radius: 999px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 0 18px;
+  font-weight: 700;
+  font-variant-numeric: tabular-nums;
+}
+.bar-in  { background: var(--accent); color: #001a10; }
+.bar-out { background: #4dc7ff; color: #001320; }
+
+/* Progress ring: sized by the caller. */
+.ring-track { stroke: var(--surface-3); }
+.ring-fill  { stroke: var(--accent); transition: stroke-dashoffset 200ms ease; }
+
+/* Bottom nav — thumb-reachable tab bar. */
+.tabbar {
+  position: fixed;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  z-index: 20;
+  padding: 10px max(16px, env(safe-area-inset-left))
+           max(14px, env(safe-area-inset-bottom))
+           max(16px, env(safe-area-inset-right));
+  background: rgba(0, 0, 0, 0.85);
+  backdrop-filter: blur(14px);
+  border-top: 1px solid var(--border);
+}
+
+/* Focus state — visible without being ugly. */
+:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
+  border-radius: 6px;
+}
+
+button, [role="button"] { cursor: pointer; }
+button:disabled { cursor: not-allowed; opacity: 0.55; }
+
+input, select, textarea {
+  background: var(--surface-2);
+  border: 1px solid var(--border);
+  color: var(--text);
+  border-radius: 12px;
+  padding: 12px 14px;
+  font-size: 16px; /* 16px prevents iOS Safari from zooming on focus */
+  width: 100%;
+}
+input:focus, select:focus, textarea:focus {
+  outline: none;
+  border-color: var(--accent);
+  box-shadow: 0 0 0 3px var(--accent-soft);
+}
+label { font-size: 13px; color: var(--text-muted); font-weight: 500; }
