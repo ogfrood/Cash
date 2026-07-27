@@ -2,8 +2,9 @@ import Link from "next/link";
 
 import { createAdhoc } from "@/actions/adhoc";
 import { pt } from "@/i18n/pt";
+import { todayLocal } from "@/lib/time";
 
-const TODAY = "2026-07-26";
+const TODAY = todayLocal();
 
 export default function NovaAvulsaPage() {
   return (

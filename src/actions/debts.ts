@@ -1,6 +1,8 @@
 "use server";
 
+import { revalidatePath } from "next/cache";
 import { redirect } from "next/navigation";
+import { eq } from "drizzle-orm";
 import { z } from "zod";
 
 import { db, schema } from "@/db";
@@ -41,6 +43,46 @@ export async function createDebt(formData: FormData) {
     })
     .run();
 
+  revalidatePath("/dividas");
+  revalidatePath("/");
+}
+
+export async function updateDebt(formData: FormData) {
+  const id = Number(formData.get("id"));
+  if (!Number.isInteger(id) || id <= 0) throw new Error("Dívida inválida");
+  const parsed = DebtSchema.parse({
+    name: formData.get("name"),
+    kind: formData.get("kind"),
+    principal: formData.get("principal"),
+    currentBalance: formData.get("currentBalance") ?? undefined,
+    dailyTarget: formData.get("dailyTarget"),
+    targetDate: formData.get("targetDate") ?? undefined,
+    emoji: formData.get("emoji") ?? undefined,
+  });
+  db.update(schema.debts)
+    .set({
+      name: parsed.name,
+      kind: parsed.kind,
+      emoji: parsed.emoji || null,
+      principalCents: dollarsToCents(parsed.principal),
+      balanceOverrideCents: parsed.currentBalance
+        ? dollarsToCents(parsed.currentBalance)
+        : null,
+      dailyTargetCents: dollarsToCents(parsed.dailyTarget),
+      targetDate: parsed.targetDate || null,
+    })
+    .where(eq(schema.debts.id, id))
+    .run();
+  revalidatePath("/dividas");
+  revalidatePath("/");
+}
+
+export async function deleteDebt(formData: FormData) {
+  const id = Number(formData.get("id"));
+  if (!Number.isInteger(id) || id <= 0) throw new Error("Dívida inválida");
+  db.delete(schema.debts).where(eq(schema.debts.id, id)).run();
+  revalidatePath("/dividas");
+  revalidatePath("/");
   redirect("/dividas");
 }
 
@@ -68,5 +110,6 @@ export async function logDebtPayment(formData: FormData) {
     })
     .run();
 
-  redirect("/dividas");
+  revalidatePath("/dividas");
+  revalidatePath("/");
 }

@@ -178,3 +178,14 @@ export function debtPayments(debtId: number) {
     .orderBy(desc(schema.debtPayments.date))
     .all();
 }
+
+/** Load current app + tax settings for the given FY. */
+export function currentSettings(fyLabel = "2026-27") {
+  const [app] = db.select().from(schema.appSettings).all();
+  const [tax] = db
+    .select()
+    .from(schema.taxSettings)
+    .where(eq(schema.taxSettings.fyLabel, fyLabel))
+    .all();
+  return { app, tax };
+}

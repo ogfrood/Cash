@@ -20,6 +20,11 @@ export function nowLocal(): TZDate {
   return TZDate.tz(TZ);
 }
 
+/** Today's date as `YYYY-MM-DD` in Brisbane local time. */
+export function todayLocal(): LocalDate {
+  return format(nowLocal(), "yyyy-MM-dd");
+}
+
 /** Convert any instant to its Brisbane-local wall-clock representation. */
 export function toLocal(instant: Date): TZDate {
   return new TZDate(instant, TZ);

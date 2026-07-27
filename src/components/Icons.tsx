@@ -91,6 +91,18 @@ export const IconWallet = ({ size, className }: P) =>
     </>,
   );
 
+export const IconCaret = ({ size, className }: P) =>
+  wrap(size, className, <><path d="M6 9l6 6 6-6" /></>);
+
+export const IconTrash = ({ size, className }: P) =>
+  wrap(
+    size,
+    className,
+    <>
+      <path d="M3 6h18M8 6V4a1 1 0 0 1 1-1h6a1 1 0 0 1 1 1v2M6 6l1 14a2 2 0 0 0 2 2h6a2 2 0 0 0 2-2l1-14" />
+    </>,
+  );
+
 export const IconBriefcase = ({ size, className }: P) =>
   wrap(
     size,
