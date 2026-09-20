@@ -1,0 +1,146 @@
+# CryptoModel v1 — pesos e definições.
+# Modelo SEPARADO do de ações, de propósito: as métricas não são comparáveis.
+# Um token não tem lucro, não tem balanço auditado e não tem data de
+# publicação de resultado. Forçar o mesmo modelo nos dois mercados seria
+# elegante e errado.
+#
+# Ver CRYPTO_MODEL_METHODOLOGY.md para variável, fonte, cálculo, peso,
+# limitação e frequência de atualização de cada item.
+
+version: "crypto-v1.0.0"
+description: >
+  Onze pilares com pesos iguais por decisão deliberada. A amostra efetiva de
+  cripto é de ordem de dezenas de observações independentes, não de dezenas de
+  milhares (ver CRYPTO_INTELLIGENCE_PLAN.md §7.1). Com essa amostra, ajustar
+  pesos é overfitting com nome melhor. Pesos iguais são a hipótese nula.
+
+normalization:
+  method: "robust_z"
+  winsorize_percentiles: [0.05, 0.95]   # caudas mais agressivas que em ações
+  peer_group: "sector"                  # setor = categoria (L1, DeFi, ...)
+  min_peers: 6
+  clip_z: 3.0
+
+min_pillar_coverage: 0.5
+min_total_coverage: 0.5   # mais tolerante: dados on-chain faltam com frequência
+
+pillars:
+  market_momentum:
+    weight: 1.0
+    rationale: >
+      Momentum é o efeito mais documentado em cripto, e também o mais sujeito
+      a reversões violentas. Excluímos a semana mais recente pelo mesmo motivo
+      que excluímos o mês recente em ações.
+    factors:
+      momentum_90d_7d: { weight: 1.5, direction: 1 }
+      momentum_30d:    { weight: 1.0, direction: 1 }
+      momentum_7d:     { weight: 0.5, direction: -1 }   # reversão de curtíssimo prazo
+
+  liquidity:
+    weight: 1.0
+    rationale: >
+      Liquidez em cripto não é detalhe operacional: é o que separa um ativo
+      investível de um número numa tela. Usamos volume de exchanges de
+      referência e profundidade, nunca o volume agregado bruto (wash trading).
+    factors:
+      trusted_volume_usd_median_30d: { weight: 1.5, direction: 1 }
+      volume_to_marketcap:           { weight: 1.0, direction: 1 }
+      bid_ask_spread_bps:            { weight: 1.0, direction: -1 }
+
+  capital_flow:
+    weight: 1.0
+    rationale: >
+      Distingue alta de preço de alta CONFIRMADA por capital. Um ativo subindo
+      com volume normal e funding neutro é um fenômeno diferente de um ativo
+      subindo com entrada de stablecoin e crescimento de open interest.
+    factors:
+      volume_trend_30d:        { weight: 1.5, direction: 1 }
+      open_interest_change_30d: { weight: 1.0, direction: 1 }
+      # Funding muito positivo indica alavancagem comprada esticada — risco,
+      # não confirmação. Direção negativa é deliberada.
+      funding_rate_mean_7d:    { weight: 1.0, direction: -1 }
+      etf_net_flow_30d:        { weight: 0.5, direction: 1 }
+
+  network_activity:
+    weight: 1.0
+    rationale: >
+      Uso real da rede. Atenção: endereços ativos NÃO são comparáveis entre
+      chains — por isso a normalização é dentro da categoria, e o fator
+      relevante é a VARIAÇÃO, não o nível.
+    factors:
+      active_addresses_change_30d:   { weight: 1.5, direction: 1 }
+      transaction_count_change_30d:  { weight: 1.0, direction: 1 }
+      tvl_change_30d:                { weight: 1.0, direction: 1 }
+
+  fundamentals:
+    weight: 1.0
+    rationale: >
+      O análogo mais próximo de "receita" em cripto: taxas pagas pelos usuários
+      e receita capturada pelo protocolo (DefiLlama). É a métrica que mais se
+      aproxima de um fundamento verificável.
+    factors:
+      fees_30d_usd:          { weight: 1.5, direction: 1 }
+      revenue_30d_usd:       { weight: 1.0, direction: 1 }
+      fees_growth_qoq:       { weight: 1.5, direction: 1 }
+
+  developer_activity:
+    weight: 1.0
+    rationale: >
+      Projeto sem desenvolvimento é projeto morto. Contagem de commits é um
+      proxy ruidoso e manipulável — por isso pesa menos que contribuidores
+      distintos.
+    factors:
+      active_contributors_90d:   { weight: 1.5, direction: 1 }
+      commits_90d:               { weight: 0.5, direction: 1 }
+      contributors_change_180d:  { weight: 1.0, direction: 1 }
+
+  adoption:
+    weight: 1.0
+    rationale: "Sinais de utilização que não dependem de preço."
+    factors:
+      stablecoin_supply_on_chain_change_90d: { weight: 1.0, direction: 1 }
+      dex_volume_change_90d:                 { weight: 1.0, direction: 1 }
+
+  valuation:
+    weight: 1.0
+    rationale: >
+      Relação entre capitalização e uso. NÃO é "barato" ou "caro" — é posição
+      relativa aos pares e à própria história. FDV/MC alto sinaliza diluição
+      futura e entra como risco, não como desconto.
+    factors:
+      marketcap_to_fees_ttm:   { weight: 1.5, direction: -1 }
+      marketcap_to_tvl:        { weight: 1.0, direction: -1 }
+      fdv_to_marketcap:        { weight: 1.5, direction: -1 }
+
+  catalysts:
+    weight: 1.0
+    rationale: >
+      Eventos datados e verificáveis. NÃO inclui rumor nem expectativa. Unlock
+      grande à frente é catalisador NEGATIVO: oferta nova chegando.
+    factors:
+      upcoming_unlock_pct_supply_90d: { weight: 1.5, direction: -1 }
+      supply_inflation_annual:        { weight: 1.0, direction: -1 }
+
+  risk:
+    weight: 1.0
+    rationale: >
+      Risco realizado na janela. Não é previsão de risco futuro. A
+      concentração de detentores entra aqui porque é o risco mais específico
+      de cripto: poucos endereços podendo vender tudo.
+    factors:
+      volatility_90d:          { weight: 1.5, direction: -1 }
+      max_drawdown_90d:        { weight: 1.0, direction: -1 }
+      beta_to_btc:             { weight: 0.5, direction: -1 }
+      top10_holder_share:      { weight: 1.0, direction: -1 }
+
+  news_sentiment:
+    weight: 1.0
+    rationale: >
+      ATENÇÃO: sentimento é CLASSIFICAÇÃO DE MODELO, nunca fato observado.
+      Este pilar entra com peso 1.0 na estrutura, mas fica DESATIVADO até
+      existir histórico suficiente para backtest — ver `enabled` abaixo.
+      Um fator sem validação histórica dentro do score é decoração.
+    enabled: false
+    factors:
+      news_sentiment_mean_30d:  { weight: 1.0, direction: 1 }
+      news_volume_change_30d:   { weight: 0.5, direction: 1 }

@@ -40,6 +40,10 @@ class PillarSpec:
     weight: float
     rationale: str
     factors: tuple[FactorSpec, ...]
+    # Um pilar pode existir na estrutura e ficar DESLIGADO até ter histórico
+    # suficiente para backtest. Fator sem validação dentro do score é
+    # decoração — ver crypto_scoring_v1.yaml, pilar news_sentiment.
+    enabled: bool = True
 
 
 @dataclass(frozen=True)
@@ -58,8 +62,12 @@ class ScoringConfig:
     raw: dict[str, Any] = field(default_factory=dict)
 
     @property
+    def active_pillars(self) -> tuple[PillarSpec, ...]:
+        return tuple(p for p in self.pillars if p.enabled)
+
+    @property
     def all_factor_names(self) -> list[str]:
-        return [f.name for p in self.pillars for f in p.factors]
+        return [f.name for p in self.active_pillars for f in p.factors]
 
     @classmethod
     def load(cls, path: Path | str) -> ScoringConfig:
@@ -77,6 +85,7 @@ class ScoringConfig:
             pillars.append(PillarSpec(
                 name=name, weight=float(spec.get("weight", 1.0)),
                 rationale=spec.get("rationale", ""), factors=factors,
+                enabled=bool(spec.get("enabled", True)),
             ))
         return cls(
             version=raw["version"],
@@ -189,7 +198,7 @@ class ScoringEngine:
         coverage = pd.DataFrame(index=frame.index, dtype=float)
         missing: dict[str, list[str]] = {t: [] for t in frame.index}
 
-        for pillar in cfg.pillars:
+        for pillar in cfg.active_pillars:
             weights = np.array([f.weight for f in pillar.factors], dtype=float)
             directions = np.array([f.direction for f in pillar.factors], dtype=float)
             names = [f.name for f in pillar.factors]
@@ -212,7 +221,7 @@ class ScoringEngine:
                 absent = [n for n in names if not available.loc[ticker, n]]
                 missing[ticker].extend(absent)
 
-        pillar_weights = pd.Series({p.name: p.weight for p in cfg.pillars})
+        pillar_weights = pd.Series({p.name: p.weight for p in cfg.active_pillars})
         pillar_available = scores.notna()
         total_weight = pillar_available.mul(pillar_weights, axis=1).sum(axis=1)
         total = (scores.fillna(0.0) * pillar_available.mul(pillar_weights, axis=1)).sum(axis=1)
@@ -231,7 +240,7 @@ class ScoringEngine:
             else pd.Series(float(len(frame)), index=frame.index),
             missing_factors=missing,
         )
-        result._specs = cfg.pillars  # type: ignore[attr-defined]
+        result._specs = cfg.active_pillars  # type: ignore[attr-defined]
         return result
 
 

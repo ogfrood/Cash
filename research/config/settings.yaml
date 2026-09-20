@@ -28,6 +28,18 @@ markets:
     # Taxa livre de risco anual usada quando não há série do BCB carregada.
     risk_free_fallback_annual: 0.105
     risk_free_series: "BCB_SELIC"
+  CRYPTO:
+    name: "Criptomoedas — mercado global 24/7"
+    currency: "USD"
+    ticker_suffix: ""
+    benchmark: "BTC"
+    benchmark_name: "Bitcoin"
+    # 365, não 252: cripto não tem pregão nem feriado. Usar 252 aqui
+    # subestimaria a volatilidade anualizada em ~24%.
+    trading_days_per_year: 365
+    # Rendimento de stablecoin / T-bill como custo de oportunidade.
+    risk_free_fallback_annual: 0.042
+    risk_free_series: "FRED_DGS3MO"
   US:
     name: "Estados Unidos — NYSE/Nasdaq"
     currency: "USD"
@@ -62,6 +74,23 @@ backtest:
 scoring:
   active_version: "v1"
   config_file: "config/scoring_v1.yaml"
+  # Cada mercado tem seu próprio modelo: as métricas não são comparáveis.
+  by_market:
+    BR: "config/scoring_v1.yaml"
+    US: "config/scoring_v1.yaml"
+    CRYPTO: "config/crypto_scoring_v1.yaml"
+
+backtest_crypto:
+  # Cripto tem custo e liquidez diferentes: taker fee de exchange é maior
+  # que corretagem de ação, e o slippage em altcoin é muito pior.
+  rebalance: "M"
+  portfolio_size: 8
+  transaction_cost_bps: 20
+  slippage_bps: 35
+  min_median_traded_value: 5000000
+  # Horizonte mínimo de decisão. 24h fica registrado para calibração, mas
+  # não vira base de decisão — ver docs/CRYPTO_INTELLIGENCE_PLAN.md §7.2.
+  min_decision_horizon_days: 7
 
 ai:
   enabled: true
