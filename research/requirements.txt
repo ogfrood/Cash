@@ -1,0 +1,26 @@
+# Núcleo (obrigatório)
+pandas>=2.2
+numpy>=1.26
+scipy>=1.11
+PyYAML>=6.0
+
+# Provedores de dados (opcional — o modo fixture funciona sem eles)
+yfinance>=0.2.50
+requests>=2.31
+
+# Interfaces (opcional)
+fastapi>=0.110
+uvicorn>=0.29
+streamlit>=1.33
+altair>=5.0
+
+# Camada de IA (opcional — há fallback determinístico sem LLM)
+anthropic>=0.40
+
+# Experimentos de ML (Fase 8+, não usado na Fase 1)
+scikit-learn>=1.4
+
+# Desenvolvimento
+pytest>=8.0
+pytest-cov>=5.0
+ruff>=0.5
