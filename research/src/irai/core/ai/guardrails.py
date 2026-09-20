@@ -49,7 +49,16 @@ REQUIRED_SECTIONS = ["incerteza", "uncertainty", "limita"]
 
 # Tolerância para casar um número do texto com um número da evidência.
 REL_TOLERANCE = 0.02
-NUMBER_RE = re.compile(r"(?<![\w/])-?\d{1,3}(?:[.,]\d{3})*(?:[.,]\d+)?(?![\w])")
+# Captura o número INTEIRO. A versão anterior exigia grupos de 3 dígitos e
+# partia "1637.42" em "42", acusando o relatório de inventar um dado que ele
+# nunca citou.
+NUMBER_RE = re.compile(r"(?<![\w.,/])-?\d+(?:[.,]\d+)*(?![\w])")
+# Datas não são afirmações numéricas. Sem isto, "2024-03-31" vira os números
+# 3 e 31 e o relatório é acusado de inventar dados.
+DATE_RE = re.compile(r"\b\d{4}-\d{2}-\d{2}\b|\b\d{2}/\d{2}/\d{4}\b")
+# Numeração de seção ("## 11. Saída do modelo") é estrutura do documento, não
+# afirmação sobre a empresa.
+HEADING_ORDINAL_RE = re.compile(r"^\s{0,3}#{1,6}\s*\d+\.", flags=re.MULTILINE)
 # Números que qualquer texto pode conter sem precisar estar na evidência.
 ALWAYS_ALLOWED = {0.0, 1.0, 2.0, 3.0, 4.0, 5.0, 6.0, 7.0, 8.0, 9.0, 10.0, 12.0,
                   21.0, 50.0, 63.0, 100.0, 126.0, 200.0, 252.0}
@@ -138,7 +147,8 @@ def check(text: str, evidence_values: list[float], require_sections: bool = True
     evidence_values = [v for v in evidence_values if np.isfinite(v)]
     unmatched: list[float] = []
     checked = 0
-    for token in NUMBER_RE.findall(text):
+    scannable = HEADING_ORDINAL_RE.sub("#", DATE_RE.sub(" <data> ", text))
+    for token in NUMBER_RE.findall(scannable):
         value = _parse_number(token)
         if value is None:
             continue

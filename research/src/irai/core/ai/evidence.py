@@ -25,13 +25,14 @@ from irai.config import sha256_of
 
 def _clean(value: Any) -> Any:
     """Converte para JSON sem NaN/inf disfarçados de número."""
-    if isinstance(value, (np.integer,)):
+    if isinstance(value, bool) or isinstance(value, np.bool_):
+        # antes de int: em Python, bool É int, e True viraria o número 1
+        return bool(value)
+    if isinstance(value, (int, np.integer)):
         return int(value)
     if isinstance(value, (np.floating, float)):
         f = float(value)
         return None if not np.isfinite(f) else round(f, 6)
-    if isinstance(value, (np.bool_, bool)):
-        return bool(value)
     if isinstance(value, pd.Timestamp):
         return value.strftime("%Y-%m-%d")
     if isinstance(value, dict):
