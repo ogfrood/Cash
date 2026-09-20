@@ -107,7 +107,9 @@ def cmd_demo(args: argparse.Namespace) -> int:
 
     print()
     print(C.rule("2. DATA — cálculo de fundamentos derivados (point-in-time)"))
-    n_metrics = _derive_fundamentals(repo, info.frame["ticker"].tolist())
+    from irai.markets.stocks.fundamentals.derive import derive_for_tickers
+    n_metrics = sum(derive_for_tickers(
+        repo, info.frame["ticker"].tolist(), source="synthetic").values())
     print(f"  métricas derivadas ....... {n_metrics:,}")
     print("  cada métrica herda a data de publicação do insumo mais recente")
 
@@ -126,6 +128,12 @@ def cmd_demo(args: argparse.Namespace) -> int:
     print(C.rule("4. QUANT ENGINE — scoring numa data"))
     scoring_cfg = ScoringConfig.load(settings.scoring_config_path())
     engine = ScoringEngine(scoring_cfg)
+
+    from irai.core.models.registry import ModelRegistry
+
+    registry = ModelRegistry(repo)
+    model_version = "stock-v1.0.0"
+    registry.ensure(model_version, market.code, scoring_cfg.config_hash, scoring_cfg.raw)
     from irai.core.features.builder import FeatureBuilder
 
     as_of = args.as_of or (pd.Timestamp(args.end) - pd.Timedelta(days=5)).strftime("%Y-%m-%d")
@@ -196,34 +204,204 @@ def cmd_demo(args: argparse.Namespace) -> int:
             print(f"      {count:>3d}x  {reason}")
         print("      ficar em caixa quando não há sinal é comportamento, não falha")
 
+
     print()
-    print(C.rule("Estado da Fase 1", char="="))
-    print("  Pronto  : DATA point-in-time, QUANT ENGINE, SCORING, BACKTEST")
-    print("  A seguir: walk-forward, prediction journal, calibração, camada de IA")
+    print(C.rule("6. WALK-FORWARD — teste fora da amostra"))
+    from irai.core.backtest.walkforward import WalkForwardRunner
+
+    def scoring_factory(_: str) -> ScoringEngine:
+        return ScoringEngine(scoring_cfg)
+
+    variants = [
+        {"name": "top5", "portfolio_size": 5},
+        {"name": "top10", "portfolio_size": 10},
+        {"name": "top10-trimestral", "portfolio_size": 10, "rebalance": "Q"},
+    ]
+    wf = WalkForwardRunner(repo, market, scoring_factory, bt_cfg).run(
+        start=args.start, end=args.end, train_years=3, test_years=1,
+        variants=variants, selection_metric="sharpe",
+    )
+    print(f"  protocolo ................ calibra 3 anos, testa 1, janela expansiva")
+    print(f"  variantes por fold ....... {len(variants)}  "
+          f"(total de backtests de calibração: {wf.total_variants_tested})")
+    print()
+    if wf.folds:
+        tbl = wf.table().copy()
+        for col in ("ret_calib", "ret_teste", "dd_teste"):
+            tbl[col] = tbl[col].map(lambda v: C.fmt_pct(v))
+        for col in ("sharpe_calib", "sharpe_teste"):
+            tbl[col] = tbl[col].map(lambda v: C.fmt_num(v))
+        print(C.table(tbl))
+        print()
+        cons = wf.consistency()
+        print(f"  folds ..................... {int(cons.get('n_folds', 0))}")
+        print(f"  folds com retorno positivo  {C.fmt_pct(cons.get('share_positive_return'))}")
+        print(f"  folds que bateram o índice  {C.fmt_pct(cons.get('share_beat_benchmark'))}")
+        print(f"  pior fold ................. {C.fmt_pct(cons.get('worst_fold_return'))}")
+        print()
+        if wf.degradation:
+            print("  Degradação calibração -> teste (quanto do resultado era ajuste):")
+            for key in ("total_return", "sharpe"):
+                tr = wf.degradation.get(f"{key}_train_mean")
+                te = wf.degradation.get(f"{key}_test_mean")
+                if tr is None:
+                    continue
+                fmt = C.fmt_pct if key == "total_return" else C.fmt_num
+                print(f"      {key:<16s} calibração {fmt(tr):>10s}  ->  teste {fmt(te):>10s}")
+        print()
+        dsr = wf.combined_metrics.get("deflated_sharpe_probability")
+        print(f"  Sharpe combinado (só teste)  {C.fmt_num(wf.combined_metrics.get('sharpe'))}")
+        print(f"  Deflated Sharpe P(>0) ...... {C.fmt_num(dsr, 4)}")
+        print(f"      corrige pelo nº de variantes testadas ({wf.total_variants_tested}).")
+        print("      Perto de 1 = o resultado sobrevive ao número de tentativas.")
+        print("      Perto de 0 = você encontrou a melhor de N sorteios.")
+    else:
+        print("  Nenhum fold completo — período curto demais para o protocolo.")
+    registry.record_experiment(
+        model_version,
+        description="walk-forward expansivo na demo sintética",
+        n_variants_tested=wf.total_variants_tested,
+        dataset_window=f"{args.start}..{args.end}",
+        result={"combined_sharpe": wf.combined_metrics.get("sharpe")},
+    )
+    print(f"  variantes acumuladas ....... {registry.total_variants_tested(model_version)} "
+          f"(gravado em model_experiments; alimenta o deflated Sharpe)")
+    for w in wf.warnings[:3]:
+        print(f"  aviso: {w}")
+
+    print()
+    print(C.rule("7. PREDICTION JOURNAL + avaliação"))
+    n_pred, evaluation = _run_predictions(repo, market, engine, scoring_cfg, args)
+    print(f"  previsões registradas .... {n_pred}")
+    print(f"  resolvidas ............... {evaluation.n_resolved}")
+    print(f"  amostra efetiva .......... {evaluation.effective_sample_size:.0f} blocos "
+          f"independentes (de {evaluation.n_resolved} previsões brutas)")
+    if evaluation.metrics:
+        print()
+        print(C.metrics_block(evaluation.metrics, [
+            "base_rate_observed", "directional_accuracy", "brier_score",
+            "brier_score_baseline_base_rate", "brier_skill_score", "mean_excess_return",
+        ]))
+    if evaluation.calibration:
+        print()
+        print("  Calibração — o que foi dito vs. o que aconteceu:")
+        print(f"      {'faixa':<14s}{'n':>5s}{'previsto':>11s}{'observado':>11s}{'IC95%':>18s}")
+        for b in evaluation.calibration:
+            ci = f"{b.ci_low*100:.0f}–{b.ci_high*100:.0f}%"
+            print(f"      {b.lower:.0%}–{b.upper:.0%}{b.n:>8d}"
+                  f"{b.mean_predicted:>10.1%}{b.observed_frequency:>11.1%}{ci:>18s}")
+    for w in evaluation.warnings:
+        print(f"  aviso: {w}")
+
+    print()
+    print(C.rule("8. AI INTERPRETATION — relatório rastreável"))
+    from irai.core.reporting.pipeline import analyze_company
+
+    analysis = analyze_company(
+        repo, market, engine, best, as_of, tickers, settings,
+        model_version="stock-v1.0.0",
+    )
+    rep = analysis.report
+    print(f"  empresa .................. {analysis.ticker}")
+    print(f"  hash da evidência ........ {analysis.evidence_hash[:16]}")
+    print(f"  redator .................. "
+          f"{rep.llm_model or 'gerador determinístico (sem ANTHROPIC_API_KEY)'}")
+    print(f"  guardrails ............... {rep.guardrail.status} "
+          f"({rep.guardrail.checked_numbers} números conferidos contra a evidência)")
+    for note in rep.notes[:2]:
+        print(f"  nota: {note}")
+    out_dir = settings.reports_dir
+    out_dir.mkdir(parents=True, exist_ok=True)
+    out_path = out_dir / f"{analysis.ticker}_{as_of}.md"
+    out_path.write_text(rep.render(), encoding="utf-8")
+    print(f"  relatório gravado ........ {out_path}")
+    print()
+    preview = rep.report_markdown.splitlines()
+    print("  " + "\n  ".join(preview[:14]))
+    print("  ...")
+
+    print()
+    print(C.rule("Fase 1 completa", char="="))
+    print("  DATA point-in-time -> QUANT ENGINE -> BACKTEST -> WALK-FORWARD")
+    print("  -> PREDICTION JOURNAL -> CALIBRAÇÃO -> AI INTERPRETATION")
+    print()
+    print("  Lembrete: tudo acima roda sobre dados SINTÉTICOS. O número que")
+    print("  importa não está aqui — está no track record que só existe depois")
+    print("  de meses de previsões reais registradas e resolvidas.")
     return 0
 
 
-def _derive_fundamentals(repo: Repository, tickers: list[str]) -> int:
-    """Calcula métricas derivadas para cada trimestre, com PIT preservado."""
-    from irai.markets.stocks.fundamentals.metrics import FundamentalsCalculator
+def _run_predictions(repo, market, engine, scoring_cfg, args):
+    """Gera previsões históricas a partir de frequências condicionais, registra
+    no diário e resolve as que já venceram.
 
-    total = 0
-    for ticker in tickers:
-        raw_all = repo.db.query(
-            """SELECT DISTINCT period_end, publication_date FROM financials
-               WHERE ticker = ? ORDER BY period_end""",
-            (ticker,),
-        )
-        for row in raw_all:
-            as_of = row["publication_date"]
-            fins = repo.financials_as_of([ticker], as_of)
-            if fins.empty:
+    Cada previsão é feita com a amostra que existia NAQUELA data — nunca com a
+    amostra completa. É a diferença entre track record e ilusão de retrospecto.
+    """
+    import pandas as pd
+
+    from irai.core.features.builder import FeatureBuilder
+    from irai.core.predictions.evaluation import PredictionEvaluator
+    from irai.core.predictions.historical import HistoricalFrequencyEngine, build_observations
+    from irai.core.predictions.journal import Prediction, PredictionJournal
+
+    horizon = 126  # ~6 meses de pregões
+    tickers = [r["ticker"] for r in repo.db.query(
+        "SELECT DISTINCT ticker FROM universe_snapshots WHERE market = ?", (market.code,))]
+    prices = repo.price_panel(tickers, start=args.start, end=args.end)
+    bench_panel = repo.price_panel([market.benchmark], start=args.start, end=args.end)
+    bench = bench_panel[market.benchmark] if market.benchmark in bench_panel else pd.Series(dtype=float)
+
+    # Scores em datas semestrais: suficiente para a demo, e reduz sobreposição.
+    dates = pd.date_range(args.start, args.end, freq="2QE")
+    builder = FeatureBuilder(repo, market)
+    scores_by_date = {}
+    for d in dates:
+        as_of = d.strftime("%Y-%m-%d")
+        panel = builder.build(tickers, as_of)
+        if panel.frame.empty:
+            continue
+        res = engine.score(panel)
+        frame = res.scores.dropna(subset=["total"])
+        if not frame.empty:
+            scores_by_date[as_of] = frame
+
+    observations = build_observations(scores_by_date, prices, bench, horizon,
+                                      feature_columns=["total", "quality", "momentum"])
+    if observations.empty:
+        evaluator = PredictionEvaluator(repo)
+        return 0, evaluator.evaluate()
+
+    hist_engine = HistoricalFrequencyEngine(observations, horizon, target="excess_return")
+    journal = PredictionJournal(repo)
+    n = 0
+    for as_of, frame in scores_by_date.items():
+        for ticker in frame.index[:6]:
+            score = float(frame.loc[ticker, "total"])
+            est = hist_engine.estimate_by_quantile(as_of, "total", score, n_quantiles=4)
+            if est.frequency_positive is None:
                 continue
-            calc = FundamentalsCalculator(fins)
-            results = calc.compute_all()
-            rows = [r.as_row(ticker, source="synthetic") for r in results]
-            total += repo.upsert_fundamentals(rows)
-    return total
+            journal.record(Prediction(
+                ticker=ticker, market=market.code, as_of_date=as_of,
+                horizon_days=horizon, model_version="stock-v1.0.0",
+                config_hash=scoring_cfg.config_hash, target="excess_return",
+                predicted_probability=est.frequency_positive,
+                base_rate=est.base_rate, sample_size=est.sample_size,
+                effective_sample_size=est.effective_sample_size,
+                uncertainty_low=est.ci_low, uncertainty_high=est.ci_high,
+                confidence=est.confidence,
+                features={"score_total": score,
+                          "quality": float(frame.loc[ticker, "quality"])
+                          if "quality" in frame.columns and pd.notna(frame.loc[ticker, "quality"])
+                          else None},
+                data_sources=["synthetic"], market_regime="não classificado (Fase 4)",
+                score_total=score, notes=est.condition,
+            ))
+            n += 1
+
+    evaluator = PredictionEvaluator(repo)
+    evaluator.resolve_pending(args.end, market.benchmark)
+    return n, evaluator.evaluate(model_version="stock-v1.0.0")
 
 
 def build_parser() -> argparse.ArgumentParser:
