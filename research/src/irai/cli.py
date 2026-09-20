@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import argparse
+import pathlib
 import sys
 from pathlib import Path
 
@@ -403,6 +404,158 @@ def _run_predictions(repo, market, engine, scoring_cfg, args):
     evaluator.resolve_pending(args.end, market.benchmark)
     return n, evaluator.evaluate(model_version="stock-v1.0.0")
 
+def _load_universe(path):
+    import yaml
+
+    raw = yaml.safe_load(pathlib.Path(path).read_text(encoding="utf-8"))
+    return raw["market"], raw.get("name", path), raw["tickers"]
+
+
+def cmd_ingest(args: argparse.Namespace) -> int:
+    """Ingere dados REAIS de mercado. Roda na sua máquina, não no container."""
+    from irai.core.providers.registry import get_provider
+    from irai.markets.stocks.fundamentals.derive import derive_for_tickers
+
+    repo, settings = _open(args)
+    market_code, universe_label, tickers = _load_universe(args.universe)
+    market = settings.market(market_code)
+    provider = get_provider(args.provider, market=market_code)
+    caps = provider.capabilities
+
+    end = args.end or pd.Timestamp.today().strftime("%Y-%m-%d")
+    start = args.start or (pd.Timestamp(end) - pd.DateOffset(years=args.years)).strftime("%Y-%m-%d")
+
+    print(C.rule(f"Ingestão · {universe_label}"))
+    print(f"  mercado .................. {market.name}")
+    print(f"  provedor ................. {caps.name}")
+    print(f"  período .................. {start} a {end}")
+    print(f"  ativos ................... {len(tickers)}")
+    if not caps.provides_real_publication_dates:
+        print()
+        print("  AVISO: este provedor NÃO informa a data de publicação dos balanços.")
+        print("  Os fundamentos entram com data estimada e o BACKTEST OS DESCARTA.")
+        print("  Para análise da data de hoje eles servem; para testar o passado, não.")
+    print()
+
+    info = provider.fetch_company_info(tickers)
+    n = repo.upsert_companies(info.rows)
+    print(f"  cadastro ................. {n} empresas")
+    for w in info.warnings[:3]:
+        print(f"      aviso: {w}")
+
+    prices = provider.fetch_prices(tickers, start, end)
+    n = repo.upsert_prices(prices.frame, source=caps.name) if not prices.frame.empty else 0
+    print(f"  preços ................... {n:,} linhas")
+    for w in prices.warnings[:3]:
+        print(f"      aviso: {w}")
+
+    bench = provider.fetch_prices([market.benchmark], start, end)
+    if not bench.frame.empty:
+        repo.upsert_prices(bench.frame, source=caps.name)
+        print(f"  benchmark ................ {market.benchmark} ({len(bench.frame):,} pregões)")
+    else:
+        print(f"  benchmark ................ FALHOU ({market.benchmark}) — beta e alpha ficarão vazios")
+
+    fins = provider.fetch_financials(tickers)
+    n = repo.upsert_financials(fins.rows)
+    print(f"  linhas de balanço ........ {n:,}")
+    for w in fins.warnings[:3]:
+        print(f"      aviso: {w}")
+
+    derived = derive_for_tickers(repo, tickers, source=f"derived:{caps.name}")
+    print(f"  métricas derivadas ....... {sum(derived.values()):,}")
+
+    today = pd.Timestamp(end).strftime("%Y-%m-%d")
+    repo.upsert_universe_snapshot(today, market_code, args.universe_name, tickers,
+                                  source=caps.name)
+    print(f"  snapshot do universo ..... {today} ({args.universe_name})")
+    print()
+    print(f"  Banco: {repo.db.path}")
+    print(f"  Próximo passo: irai rank --market {market_code}")
+    return 0
+
+
+def cmd_rank(args: argparse.Namespace) -> int:
+    """Lista de empresas que merecem pesquisa — NÃO é lista de compra."""
+    from irai.core.db.repository import PITPolicy, Repository
+    from irai.core.features.builder import FeatureBuilder
+    from irai.core.scoring.engine import ScoringConfig, ScoringEngine
+
+    repo, settings = _open(args)
+    market = settings.market(args.market)
+    as_of = args.as_of or pd.Timestamp.today().strftime("%Y-%m-%d")
+
+    tickers = repo.universe_as_of(args.market, args.universe_name, as_of)
+    if not tickers:
+        print(f"Sem snapshot de universo para {args.market} em {as_of}.")
+        print("Rode primeiro: irai ingest --universe config/universe_br.yaml")
+        return 1
+
+    # Analisar HOJE não é simular o passado: não há futuro para vazar. Por isso
+    # a data estimada de publicação é aceitável aqui e proibida no backtest.
+    days_old = (pd.Timestamp.today() - pd.Timestamp(as_of)).days
+    is_current = days_old <= args.current_window_days
+    policy = PITPolicy(allow_estimated=is_current and not args.strict)
+    repo = Repository(repo.db, policy)
+
+    scoring_cfg = ScoringConfig.load(settings.scoring_config_path())
+    engine = ScoringEngine(scoring_cfg)
+    panel = FeatureBuilder(repo, market).build(tickers, as_of)
+    if panel.frame.empty:
+        print("Painel de fatores vazio — sem preços suficientes no banco.")
+        return 1
+    result = engine.score(panel)
+    ranked = result.ranked("total")
+
+    print(C.rule("Companies Worth Further Research", char="="))
+    print(f"  mercado .................. {market.name}")
+    print(f"  data de análise .......... {as_of}" + ("  (análise corrente)" if is_current else ""))
+    print(f"  modelo ................... {scoring_cfg.version} · config {scoring_cfg.config_hash[:12]}")
+    print(f"  pontuadas ................ {len(ranked)} de {len(tickers)}")
+    print(f"  datas de publicação ...... "
+          f"{'estimadas, aceitas nesta análise corrente' if policy.allow_estimated else 'apenas reais'}")
+    print()
+    print("  ISTO NÃO É UMA LISTA DE COMPRA. É uma ordenação relativa segundo")
+    print("  critérios declarados em MODEL_METHODOLOGY.md. Não estima retorno,")
+    print("  não indica preço justo e não substitui a leitura dos documentos.")
+    print()
+
+    if ranked.empty:
+        print("  Nenhuma empresa atingiu a cobertura mínima de fatores.")
+        print("  Provável causa: poucos trimestres de balanço no banco.")
+        return 1
+
+    cols = [p.name for p in scoring_cfg.active_pillars]
+    table = ranked.head(args.top)[cols + ["total"]].round(2)
+    table.insert(0, "ticker", table.index)
+    sectors = repo.sector_map(list(table.index))
+    table.insert(1, "setor", [(sectors.get(t) or "—")[:14] for t in table.index])
+    print(C.table(table.reset_index(drop=True), max_rows=args.top))
+    print()
+
+    print(C.rule("Por que cada uma apareceu"))
+    for ticker in ranked.index[:args.explain]:
+        exp = result.explain(ticker)
+        fatores = ", ".join(
+            f"{c['factor']} (z {c['z_score']:+.1f})" for c in exp["top_positive"][:3]
+        )
+        contra = ", ".join(
+            f"{c['factor']} (z {c['z_score']:+.1f})" for c in exp["top_negative"][:2]
+        )
+        cobertura = exp["coverage"].get("total")
+        print(f"  {ticker}")
+        print(f"      a favor : {fatores or '—'}")
+        print(f"      contra  : {contra or '—'}")
+        print(f"      pares   : {exp['peer_group']} ({int(exp['peer_count'] or 0)}) · "
+              f"cobertura {C.fmt_pct(cobertura)}")
+    print()
+    print(C.rule("Antes de usar isto com dinheiro", char="="))
+    print("  1. O modelo ainda NÃO demonstrou habilidade fora da amostra.")
+    print("     Rode: irai backtest e irai walkforward --market " + args.market)
+    print("  2. Se o walk-forward vier negativo, esta lista é ruído ordenado.")
+    print("  3. Paper trading por pelo menos um trimestre antes de qualquer ordem.")
+    return 0
+
 
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(
@@ -426,6 +579,27 @@ def build_parser() -> argparse.ArgumentParser:
     demo.add_argument("--signal", type=float, default=0.35,
                       help="Força do sinal plantado nos dados sintéticos (0 = ruído puro)")
     demo.set_defaults(func=cmd_demo)
+
+
+    ing = sub.add_parser("ingest", help="Ingere dados REAIS de mercado (roda na sua máquina)")
+    ing.add_argument("--universe", required=True, help="config/universe_br.yaml")
+    ing.add_argument("--provider", default="yfinance")
+    ing.add_argument("--universe-name", default="config")
+    ing.add_argument("--years", type=int, default=6)
+    ing.add_argument("--start", default=None)
+    ing.add_argument("--end", default=None)
+    ing.set_defaults(func=cmd_ingest)
+
+    rk = sub.add_parser("rank", help="Empresas que merecem pesquisa (NÃO é lista de compra)")
+    rk.add_argument("--market", default="BR")
+    rk.add_argument("--universe-name", default="config")
+    rk.add_argument("--as-of", default=None)
+    rk.add_argument("--top", type=int, default=15)
+    rk.add_argument("--explain", type=int, default=5)
+    rk.add_argument("--strict", action="store_true",
+                    help="Exige data de publicação real mesmo na análise corrente")
+    rk.add_argument("--current-window-days", type=int, default=10)
+    rk.set_defaults(func=cmd_rank)
 
     return parser
 
