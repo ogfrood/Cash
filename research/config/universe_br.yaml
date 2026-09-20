@@ -1,0 +1,32 @@
+# Universo BR da V1. Lista estática de large/mid caps líquidas da B3.
+# ATENÇÃO: lista montada em 2026 => viés de sobrevivência. Ver DATA_SOURCES.md §5.1.
+# Para backtest honesto, popule `universe_snapshots` com a carteira histórica
+# do Ibovespa (comando: `irai universe snapshot --market BR --file <csv>`).
+market: BR
+name: "B3 — large e mid caps líquidas"
+tickers:
+  - PETR4.SA
+  - VALE3.SA
+  - ITUB4.SA
+  - BBDC4.SA
+  - BBAS3.SA
+  - B3SA3.SA
+  - ABEV3.SA
+  - WEGE3.SA
+  - RENT3.SA
+  - SUZB3.SA
+  - PRIO3.SA
+  - RADL3.SA
+  - EQTL3.SA
+  - ELET3.SA
+  - RAIL3.SA
+  - GGBR4.SA
+  - CSAN3.SA
+  - LREN3.SA
+  - TOTS3.SA
+  - VIVT3.SA
+  - KLBN11.SA
+  - SBSP3.SA
+  - CMIG4.SA
+  - HAPV3.SA
+  - EMBR3.SA

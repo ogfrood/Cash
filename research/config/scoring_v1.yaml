@@ -1,0 +1,84 @@
+# Scoring v1 — pesos e definições.
+# Toda mudança aqui DEVE vir acompanhada de: (a) bump de `version`,
+# (b) justificativa em MODEL_METHODOLOGY.md, (c) novo walk-forward.
+# O hash deste arquivo é gravado junto de cada previsão (model_predictions.config_hash).
+
+version: "v1.0.0"
+description: >
+  Scoring cross-sectional de seis pilares com pesos iguais por decisão
+  deliberada (ver MODEL_METHODOLOGY.md §5): não há evidência fora da amostra,
+  neste projeto, que justifique pesos diferentes. Pesos iguais são a hipótese
+  nula honesta.
+
+normalization:
+  method: "robust_z"        # robust_z (mediana/MAD) | z | rank
+  winsorize_percentiles: [0.01, 0.99]
+  peer_group: "sector"      # sector | market — grupo do cross-section
+  min_peers: 5              # abaixo disso, cai para o grupo 'market'
+  clip_z: 3.0
+
+# Cobertura mínima: fração de fatores do pilar que precisam existir para o
+# pilar valer. Abaixo disso o pilar vira NaN e o score total é recalculado
+# com os pesos renormalizados — e a cobertura é reportada.
+min_pillar_coverage: 0.5
+min_total_coverage: 0.6
+
+pillars:
+  quality:
+    weight: 1.0
+    rationale: "Retorno sobre capital e estabilidade de margem. Proxy de vantagem competitiva."
+    factors:
+      roe:              { weight: 1.0, direction: 1 }
+      roic:             { weight: 1.5, direction: 1 }
+      gross_margin:     { weight: 0.5, direction: 1 }
+      operating_margin: { weight: 1.0, direction: 1 }
+      net_margin:       { weight: 0.5, direction: 1 }
+
+  growth:
+    weight: 1.0
+    rationale: "Crescimento de receita e lucro. Receita pesa mais por ser menos manipulável que lucro."
+    factors:
+      revenue_growth_yoy:  { weight: 1.5, direction: 1 }
+      earnings_growth_yoy: { weight: 1.0, direction: 1 }
+      eps_growth_yoy:      { weight: 1.0, direction: 1 }
+
+  value:
+    weight: 1.0
+    rationale: "Múltiplos baratos em relação aos pares. direction -1 porque menor é melhor."
+    factors:
+      pe:           { weight: 1.0, direction: -1 }
+      pb:           { weight: 0.5, direction: -1 }
+      ev_ebitda:    { weight: 1.5, direction: -1 }
+      price_to_fcf: { weight: 1.0, direction: -1 }
+
+  momentum:
+    weight: 1.0
+    rationale: >
+      Momentum 12-1 (12 meses excluindo o último) é o efeito mais replicado da
+      literatura acadêmica; o mês recente é excluído por causa da reversão de
+      curto prazo. 6M entra com peso menor como confirmação.
+    factors:
+      momentum_12_1: { weight: 1.5, direction: 1 }
+      momentum_6m:   { weight: 1.0, direction: 1 }
+      momentum_3m:   { weight: 0.5, direction: 1 }
+      momentum_1m:   { weight: 0.5, direction: -1 }   # reversão de curto prazo
+
+  financial_health:
+    weight: 1.0
+    rationale: "Alavancagem e geração de caixa. Empresa que não gera caixa não sobrevive a ciclo ruim."
+    factors:
+      debt_to_equity:   { weight: 1.0, direction: -1 }
+      net_debt_ebitda:  { weight: 1.5, direction: -1 }
+      fcf_margin:       { weight: 1.0, direction: 1 }
+      current_ratio:    { weight: 0.5, direction: 1 }
+
+  risk:
+    weight: 1.0
+    rationale: >
+      Baixa volatilidade e drawdown contido. Direction -1 porque mais risco é
+      pior no score. Atenção: isto NÃO é previsão de risco futuro; é a medição
+      do risco realizado na janela.
+    factors:
+      volatility_12m:   { weight: 1.5, direction: -1 }
+      max_drawdown_12m: { weight: 1.0, direction: -1 }
+      beta:             { weight: 0.5, direction: -1 }

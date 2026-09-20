@@ -1,0 +1,30 @@
+# Universo US da V1. Subconjunto de large caps do S&P 500 com liquidez alta.
+# Mesmo aviso de viés de sobrevivência do universo BR.
+market: US
+name: "US — large caps líquidas"
+tickers:
+  - AAPL
+  - MSFT
+  - GOOGL
+  - AMZN
+  - META
+  - NVDA
+  - JPM
+  - JNJ
+  - XOM
+  - PG
+  - UNH
+  - HD
+  - CVX
+  - MRK
+  - KO
+  - PEP
+  - ABBV
+  - COST
+  - WMT
+  - CSCO
+  - ADBE
+  - CRM
+  - MCD
+  - TXN
+  - CAT

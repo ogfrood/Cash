@@ -1,0 +1,78 @@
+# Configuração global do Investment Research AI.
+# Tudo que muda resultado de backtest mora aqui — nada de número mágico no código.
+
+database:
+  # Caminho relativo à raiz de `research/`. SQLite na V1; troque por uma URL
+  # postgresql:// quando o volume justificar (o repositório usa SQL padrão).
+  path: "data/investment_research.db"
+
+point_in_time:
+  # Se false, fundamentos sem data de publicação REAL são ignorados pelo
+  # backtest. Ligue por sua conta e risco — e leia o aviso no relatório.
+  allow_estimated_publication_dates: false
+  # Dias entre o fim do período e a publicação presumida, quando estimamos.
+  estimated_publication_lag_days:
+    BR: { Q: 60, A: 90 }
+    US: { Q: 45, A: 75 }
+  # Dias entre o cálculo do sinal e a execução da ordem.
+  execution_lag_days: 1
+
+markets:
+  BR:
+    name: "Brasil — B3"
+    currency: "BRL"
+    ticker_suffix: ".SA"
+    benchmark: "^BVSP"
+    benchmark_name: "Ibovespa"
+    trading_days_per_year: 252
+    # Taxa livre de risco anual usada quando não há série do BCB carregada.
+    risk_free_fallback_annual: 0.105
+    risk_free_series: "BCB_SELIC"
+  US:
+    name: "Estados Unidos — NYSE/Nasdaq"
+    currency: "USD"
+    ticker_suffix: ""
+    benchmark: "^GSPC"
+    benchmark_name: "S&P 500"
+    trading_days_per_year: 252
+    risk_free_fallback_annual: 0.042
+    risk_free_series: "FRED_DGS10"
+
+ingestion:
+  default_provider: "yfinance"
+  # Provider por tipo de dado. 'fixture' lê CSV de data/fixtures (modo offline).
+  providers:
+    prices: "yfinance"
+    fundamentals: "yfinance"
+  request_delay_seconds: 0.5
+  max_retries: 3
+  user_agent: "InvestmentResearchAI/0.1 (contato: configure em settings.yaml)"
+
+backtest:
+  rebalance: "M"              # M = mensal, Q = trimestral
+  portfolio_size: 10          # nº de posições long
+  weighting: "equal"          # equal | score_proportional
+  min_price: 1.0              # filtro de penny stock (moeda local)
+  min_median_dollar_volume: 1000000   # liquidez mínima (moeda local, mediana 60d)
+  transaction_cost_bps: 15    # corretagem + emolumentos, ida ou volta
+  slippage_bps: 10            # impacto de mercado presumido
+  initial_capital: 100000.0
+  min_names_to_trade: 3       # abaixo disso, fica em caixa
+
+scoring:
+  active_version: "v1"
+  config_file: "config/scoring_v1.yaml"
+
+ai:
+  enabled: true
+  model: "claude-opus-5"
+  max_tokens: 2000
+  temperature: 0.0
+  # Sem chave de API o sistema cai no gerador determinístico (sem LLM).
+  api_key_env: "ANTHROPIC_API_KEY"
+  # Se true, uma saída que viole os guardrails é bloqueada em vez de marcada.
+  block_on_guardrail_violation: true
+
+reports:
+  output_dir: "reports"
+  language: "pt-BR"

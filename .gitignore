@@ -42,3 +42,15 @@ next-env.d.ts
 
 # App-owned
 /data
+
+# Investment Research AI (Python)
+research/data/*.db
+research/data/raw/*
+!research/data/raw/.gitkeep
+research/backtests/*
+!research/backtests/.gitkeep
+research/reports/*
+!research/reports/.gitkeep
+research/**/__pycache__/
+research/.venv/
+research/*.egg-info/
